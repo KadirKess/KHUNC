@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "khunc"
+version = "0.1.0"
+description = "Kinda Half U-Net Compression"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy>=1.26,<3",
+    "pillow>=10,<13",
+    "torch>=2.4,<3",
+    "torchvision>=0.19,<1",
+    "pytorch-lightning>=2.4,<3",
+    "pytorch-msssim>=1.0,<2",
+    "matplotlib>=3.11.2",
+]
+
+[project.optional-dependencies]
+notebook = ["matplotlib>=3.8,<4", "ipykernel>=6,<8", "jupyterlab>=4,<5"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1", "nbformat>=5,<6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/khunc"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/notebooks", "/README.md", "/pyproject.toml", "/uv.lock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = ["E501"]

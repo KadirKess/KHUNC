@@ -1,0 +1,17 @@
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+data/
+kodak/
+experiments/
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.khunc
+dist/
+*.egg-info/
+.DS_Store
