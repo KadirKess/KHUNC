@@ -41,11 +41,13 @@ result = train(config, checkpoint="best_model.ckpt")
 model = result.model
 ```
 
-`train(config)` starts from new weights. `checkpoint=` fine-tunes saved weights with a new optimizer. `resume_from=` restores a KHUNC training checkpoint, including optimizer and scheduler state. When resuming, `epochs` is the total epoch target, not an additional count. The original notebook checkpoint supports fine-tuning and inference, but not optimizer resumption through the new trainer.
+`train(config)` starts from new weights. `checkpoint=` fine-tunes saved weights with a new optimizer. `resume_from=` restores a KHUNC training checkpoint, including optimizer and scheduler state. When resuming, `epochs` is the total epoch target, not an additional count.
 
-Defaults reproduce the original architecture, 384 x 384 tensor resizing, MS-SSIM loss, AdamW learning rate of 0.001, and 50 epochs. The default experiment uses float32 latents. ReduceLROnPlateau monitors `val_loss`, with `lr_scheduler_patience=10` and `lr_scheduler_factor=0.1`. EarlyStopping uses `early_stopping_patience=20`; set it to `None` to disable it. Both use validation with actual stored quantization. Compilation is opt-in through `compile_model=True`.
+The notebook defaults to 384 x 384 augmented images, float32 latents, MS-SSIM loss, an AdamW learning rate of 0.001, and 50 epochs. It enables `compile_model=True` and uses `training_precision="bf16-mixed"`; choose a precision supported by your hardware. `TrainConfig` defaults to resize-only training, `compile_model=False`, and `precision="32-true"`.
 
-Imagenette's training directory is split into training and validation sets within each class, using `validation_fraction` and `seed`. Its existing `val` directory is the test set. The exact file lists are saved with each run. The old notebook used that directory for validation, so it is not an untouched test set for a checkpoint selected by the old notebook. Kodak is a separate final benchmark.
+ReduceLROnPlateau monitors `val_loss`, with `lr_scheduler_patience=10` and `lr_scheduler_factor=0.1`. EarlyStopping uses `early_stopping_patience=20`; set it to `None` to disable it. Both use validation with actual stored quantization.
+
+Imagenette's training directory is split into training and validation sets within each class, using `validation_fraction` and `seed`. Its existing `val` directory is the test set. The exact file lists are saved with each run. Kodak is a separate final benchmark.
 
 ```python
 from khunc import test_model
@@ -59,7 +61,7 @@ Augmentation settings are plain notebook variables: `crop_scale=(0.5, 1.0)` spec
 
 ## Architecture experiments
 
-The encoder always has four downsampling layers. Set `ModelConfig(encoder_up_layers=1)` for one encoder upsampling layer and three decoder upsampling layers. The default is two in each. Values from 0 to 4 are supported; the decoder gets the remaining layers. With three latent channels, 1/3 stores one quarter as many values as 2/2. Changing the split requires training a new model. The original checkpoint uses 2/2.
+The encoder always has four downsampling layers. Set `ModelConfig(encoder_up_layers=1)` for one encoder upsampling layer and three decoder upsampling layers. The default is two in each. Values from 0 to 4 are supported; the decoder gets the remaining layers. With three latent channels, 1/3 stores one quarter as many values as 2/2. Changing the split requires training a new model.
 
 ```python
 from dataclasses import replace
@@ -71,7 +73,7 @@ result = train(smaller_latent)
 
 ## Latent storage and quantization
 
-The notebook uses plain settings such as `latent_dtype = "float16"` and `training_precision = "32-true"`. The former changes the saved compressed latent; the latter changes arithmetic during training. Input images still use ordinary RGB pixels. The Python API stores these choices in `QuantizationConfig` and `TrainConfig` so experiments can be saved and resumed.
+The notebook uses plain settings such as `latent_dtype = "float32"` and `training_precision = "bf16-mixed"`. The former changes the saved compressed latent; the latter changes arithmetic during training. Input images still use ordinary RGB pixels. The Python API stores these choices in `QuantizationConfig` and `TrainConfig` so experiments can be saved and resumed.
 
 | Setting | Meaning |
 | --- | --- |
@@ -86,7 +88,7 @@ The notebook uses plain settings such as `latent_dtype = "float16"` and `trainin
 
 Bit depths from 1 to 8 are supported. For integer storage, each image and channel has its own minimum and scale. Both are stored as float32 metadata. Ranges are computed from detached latents in the training surrogates. STE and noise are approximations; compare them experimentally. Validation and testing always use actual rounding at the configured bit depth, even when training uses noise.
 
-`precision="bf16-mixed"` controls training arithmetic on compatible hardware. It is independent of latent storage and does not simulate uint8 quantization. The default is `precision="32-true"`. The optional reconstruction losses are `"mse"` and `"ms_ssim_mse"`; the latter adds `mse_weight * MSE` to the MS-SSIM loss.
+`precision="bf16-mixed"` controls training arithmetic on compatible hardware. It is independent of latent storage and does not simulate uint8 quantization. The notebook selects this mode; the Python API defaults to `precision="32-true"`. The optional reconstruction losses are `"mse"` and `"ms_ssim_mse"`; the latter adds `mse_weight * MSE` to the MS-SSIM loss.
 
 STE means straight-through estimator: round or cast the latent in the forward pass, then approximate its gradient as identity. This follows the idea described by [Bengio et al., 2013](https://arxiv.org/abs/1308.3432). Noise replaces integer rounding during training with uniform noise within half a quantization step, following [Ballé et al., 2017](https://arxiv.org/abs/1611.01704). Here the step is computed per image and channel; it is an adaptation, not a reproduction of their full compression model. `training="none"` leaves the training latent unchanged. Noise is available for integer storage; STE also supports float16 and bfloat16 casts.
 
@@ -135,6 +137,8 @@ figure = plot_quantization(
 ```
 
 `evaluate_kodak(model, quantization=...)` downloads the 24 Kodak images and runs a single configuration. `evaluate(model, image_paths, ...)` evaluates any image set. The evaluator decodes the saved compressed files and scores RGB8 PNG reconstructions with SSIMULACRA2. It saves per-image scores, their mean and range, stored sizes, bits per pixel, and mean compression and decompression times. Stored sizes include format overhead and quantization metadata.
+
+The notebook compares float32, float16, bfloat16, and integer storage at 8, 7, 6, 5, and 4 bits by default. Set `compare_integer_quantization=False` to skip the integer modes. Its External images evaluation section accepts a folder or list of paths through `extra_images`.
 
 Timings use batch size one, warmup for each image shape, and CUDA or MPS synchronization. They include quantization, in-memory serialization, and memory transfers. Input loading and input transfer to the device, disk I/O, PNG saving, metric calculation, and codec initialization are outside the measurements. Results record the device, package versions, executable hash, model fingerprint, source image hashes, and timing settings. Compare performance on the same device.
 
