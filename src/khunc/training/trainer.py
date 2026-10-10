@@ -24,13 +24,16 @@ class TrainingModule(pl.LightningModule):
         self.save_hyperparameters({"config": config.to_dict()})
 
     def reconstruction_loss(self, image, reconstructed):
-        mse = torch.nn.functional.mse_loss(reconstructed, image)
-        if self.config.loss == "mse":
-            return mse
-        perceptual = 1 - ms_ssim(image.float(), reconstructed.float(), data_range=1.0)
-        if self.config.loss == "ms_ssim_mse":
-            return perceptual + self.config.mse_weight * mse
-        return perceptual
+        # MS-SSIM's variance estimates need float32 even under mixed precision.
+        with torch.autocast(device_type=image.device.type, enabled=False):
+            image, reconstructed = image.float(), reconstructed.float()
+            mse = torch.nn.functional.mse_loss(reconstructed, image)
+            if self.config.loss == "mse":
+                return mse
+            perceptual = 1 - ms_ssim(image, reconstructed, data_range=1.0)
+            if self.config.loss == "ms_ssim_mse":
+                return perceptual + self.config.mse_weight * mse
+            return perceptual
 
     def _step(self, image, stage):
         height, width = image.shape[-2:]

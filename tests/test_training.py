@@ -77,6 +77,26 @@ def test_noise_training_uses_real_rounding_during_validation(config):
     assert torch.equal(expected, actual)
 
 
+@pytest.mark.parametrize("loss", ["mse", "ms_ssim", "ms_ssim_mse"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_mixed_precision_loss_and_gradients_match_float32(config, loss, dtype):
+    config = replace(config, image_size=176, loss=loss)
+    module = TrainingModule(KHUNC(config.model), config)
+    image = torch.rand(1, 3, 176, 176)
+    reconstructed = (image * 0.8 + 0.1).to(dtype).requires_grad_()
+    reference = reconstructed.detach().float().requires_grad_()
+    expected = module.reconstruction_loss(image, reference)
+    expected.backward()
+    with torch.autocast("cpu", dtype=dtype):
+        actual = module.reconstruction_loss(image, reconstructed)
+    actual.backward()
+    assert actual.dtype == torch.float32
+    assert torch.equal(actual, expected)
+    assert torch.isfinite(reconstructed.grad).all()
+    assert reconstructed.grad.abs().sum() > 0
+    assert torch.equal(reconstructed.grad, reference.grad.to(dtype))
+
+
 @pytest.mark.parametrize("augment", [False, True])
 def test_training_saves_and_resumes_a_complete_experiment(config, augment):
     config = replace(config, augment=augment)
