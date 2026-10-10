@@ -1,6 +1,6 @@
 # KHUNC: Kinda Half U-Net Compression
 
-Kinda Half U-Net Compression is an image autoencoder with a three-channel latent at one quarter of the input width and height by default. Use Python functions to train, compress, reconstruct, and compare experiments in a notebook.
+Kinda Half U-Net Compression is an image autoencoder based on U-Net [[1]](#references), with a three-channel latent at one quarter of the input width and height by default. Use Python functions to train, compress, reconstruct, and compare experiments in a notebook.
 
 ## Setup
 
@@ -19,7 +19,7 @@ Open the GitHub notebook using the Colab button above each time you want the lat
 
 The notebook includes a Colab setup cell. It installs KHUNC into the running Python environment so training can use Colab's GPU. Set `output_dir` to a folder in mounted Google Drive to keep experiment files after a session ends.
 
-SSIMULACRA2 is an external executable used by the Python evaluator. On macOS, install it with `brew install jpeg-xl`. The notebook includes a Colab installer for the upstream implementation. Pass `binary="/path/to/ssimulacra2"` if it is not on your PATH. Evaluation raises an error if the metric is unavailable.
+SSIMULACRA2 [[2]](#references) is an external executable used by the Python evaluator. On macOS, install it with `brew install jpeg-xl`. The notebook includes a Colab installer for the upstream implementation. Pass `binary="/path/to/ssimulacra2"` if it is not on your PATH. Evaluation raises an error if the metric is unavailable.
 
 ## Train and fine-tune
 
@@ -43,7 +43,7 @@ model = result.model
 
 `train(config)` starts from new weights. `checkpoint=` fine-tunes saved weights with a new optimizer. `resume_from=` restores a KHUNC training checkpoint, including optimizer and scheduler state. When resuming, `epochs` is the total epoch target, not an additional count.
 
-The notebook defaults to 384 x 384 augmented images, float32 latents, MS-SSIM loss, an AdamW learning rate of 0.001, and 50 epochs. It enables `compile_model=True` and uses `training_precision="bf16-mixed"`; choose a precision supported by your hardware. `TrainConfig` defaults to resize-only training, `compile_model=False`, and `precision="32-true"`.
+The notebook defaults to 384 x 384 augmented images, float32 latents, MS-SSIM loss implemented by pytorch-msssim [[3]](#references), an AdamW learning rate of 0.001, and 50 epochs. It enables `compile_model=True` and uses `training_precision="bf16-mixed"`; choose a precision supported by your hardware. `TrainConfig` defaults to resize-only training, `compile_model=False`, and `precision="32-true"`.
 
 ReduceLROnPlateau monitors `val_loss`, with `lr_scheduler_patience=10` and `lr_scheduler_factor=0.1`. EarlyStopping uses `early_stopping_patience=20`; set it to `None` to disable it. Both use validation with actual stored quantization.
 
@@ -57,7 +57,7 @@ test_metrics = test_model(model, config)
 
 Training always produces fixed-size batches. The notebook enables augmentation by default; `TrainConfig` defaults to resize-only training for compatibility with existing experiments. Set `augment=True` to use random square crops at varied scales, horizontal and vertical flips, and mild brightness, contrast, and saturation changes. Both the input and reconstruction target are the same augmented image. Validation and Imagenette testing use deterministic resizing, and Kodak uses native dimensions. These augmentations aim to improve generalization; measure their effect against `augment=False` using the same split and seed.
 
-Augmentation settings are plain notebook variables: `crop_scale=(0.5, 1.0)` specifies the fraction of source area before resizing, `horizontal_flip=0.5` and `vertical_flip=0.5` specify probabilities, and `color_jitter=0.1` sets the strength of color changes. Set a flip or jitter value to zero to disable it. Square crops preserve aspect ratio before resizing. Parameters are saved with each experiment. See torchvision's [RandomResizedCrop](https://docs.pytorch.org/vision/stable/generated/torchvision.transforms.v2.RandomResizedCrop.html) and [ColorJitter](https://docs.pytorch.org/vision/stable/generated/torchvision.transforms.v2.ColorJitter.html).
+Augmentation settings are plain notebook variables: `crop_scale=(0.5, 1.0)` specifies the fraction of source area before resizing, `horizontal_flip=0.5` and `vertical_flip=0.5` specify probabilities, and `color_jitter=0.1` sets the strength of color changes. Set a flip or jitter value to zero to disable it. Square crops preserve aspect ratio before resizing. Parameters are saved with each experiment. Cropping and color changes use torchvision's RandomResizedCrop and ColorJitter.
 
 ## Architecture experiments
 
@@ -90,7 +90,7 @@ Bit depths from 1 to 8 are supported. For integer storage, each image and channe
 
 `precision="bf16-mixed"` controls training arithmetic on compatible hardware. It is independent of latent storage and does not simulate uint8 quantization. The notebook selects this mode; the Python API defaults to `precision="32-true"`. The optional reconstruction losses are `"mse"` and `"ms_ssim_mse"`; the latter adds `mse_weight * MSE` to the MS-SSIM loss.
 
-STE means straight-through estimator: round or cast the latent in the forward pass, then approximate its gradient as identity. This follows the idea described by [Bengio et al., 2013](https://arxiv.org/abs/1308.3432). Noise replaces integer rounding during training with uniform noise within half a quantization step, following [Ballé et al., 2017](https://arxiv.org/abs/1611.01704). Here the step is computed per image and channel; it is an adaptation, not a reproduction of their full compression model. `training="none"` leaves the training latent unchanged. Noise is available for integer storage; STE also supports float16 and bfloat16 casts.
+STE means straight-through estimator: round or cast the latent in the forward pass, then approximate its gradient as identity, following Bengio et al. [[4]](#references). Noise replaces integer rounding during training with uniform noise within half a quantization step, following Ballé et al. [[5]](#references). Here the step is computed per image and channel; it is an adaptation, not a reproduction of their full compression model. `training="none"` leaves the training latent unchanged. Noise is available for integer storage; STE also supports float16 and bfloat16 casts.
 
 ## Compress and decompress
 
@@ -181,6 +181,10 @@ uv run pytest
 uv run ruff check .
 ```
 
-## Reference
+## References
 
-Olaf Ronneberger, Philipp Fischer, and Thomas Brox. [U-Net: Convolutional Networks for Biomedical Image Segmentation](https://arxiv.org/abs/1505.04597), 2015.
+- [1] Ronneberger et al., 2015. [U-Net: Convolutional Networks for Biomedical Image Segmentation](https://arxiv.org/abs/1505.04597).
+- [2] libjxl. [SSIMULACRA2 implementation, v0.12.0](https://github.com/libjxl/libjxl/blob/v0.12.0/tools/ssimulacra2.cc).
+- [3] VainF. [pytorch-msssim: differentiable MS-SSIM and SSIM for PyTorch](https://github.com/VainF/pytorch-msssim).
+- [4] Bengio et al., 2013. [Estimating or Propagating Gradients Through Stochastic Neurons for Conditional Computation](https://arxiv.org/abs/1308.3432).
+- [5] Ballé et al., 2017. [End-to-end Optimized Image Compression](https://arxiv.org/abs/1611.01704).
