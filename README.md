@@ -2,6 +2,36 @@
 
 Kinda Half U-Net Compression is an image autoencoder based on U-Net [[1]](#references), with a three-channel latent at one quarter of the input width and height by default. Use Python functions to train, compress, reconstruct, and compare experiments in a notebook.
 
+## Baseline results
+
+Trained on Imagenette and evaluated on all 24 Kodak images [[6]](#references) at native resolution. Integer quantization is applied after training, using the same best checkpoint for every storage mode.
+
+Training parameters:
+
+- Dataset: 8,522 training images, 947 validation images; seed 42.
+- Image size: 384 x 384.
+- Model: 32 base channels, 3 latent channels, 2/2 upsampling split.
+- Training: 50 epochs, batch size 8.
+- Optimizer: AdamW, learning rate 0.001, weight decay 0.01.
+- Loss: `1 - MS-SSIM`.
+- Augmentation: crop scale 0.5 to 1.0, horizontal/vertical flips at 0.5, color jitter 0.1.
+- Precision: `bf16-mixed`; float32 training latents, no quantization surrogate.
+- Callbacks: ReduceLROnPlateau with patience 10 and factor 0.1; EarlyStopping with patience 20.
+
+| Latent storage | Mean SSIMULACRA2 | Stored bytes per image | Bits per pixel |
+| --- | ---: | ---: | ---: |
+| uint8, 8 bits | 51.58 | 73,818 | 1.5018 |
+| uint8, 7 bits | 51.03 | 64,602 | 1.3143 |
+| uint8, 6 bits | 48.70 | 55,386 | 1.1268 |
+| uint8, 5 bits | 38.09 | 46,170 | 0.9393 |
+| uint8, 4 bits | 4.04 | 36,954 | 0.7518 |
+
+Higher SSIMULACRA2 is better. Float32 storage scores 51.77 at 294,978 bytes per image. Eight-bit uint8 reduces size by 75% with a 0.19-point drop in score. Sizes include format metadata and exclude shared model weights.
+
+![Original Kodak image 1 and its 8-bit uint8 reconstruction, with matching enlarged window and stonework details](assets/kodak-uint8-comparison.png)
+
+Original and uint8 reconstruction of Kodak image 1, scoring 45.27. Matching detail crops are enlarged 2x without smoothing.
+
 ## Setup
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/KadirKess/KHUNC/blob/main/notebooks/experiments.ipynb)
@@ -188,3 +218,4 @@ uv run ruff check .
 - [3] VainF. [pytorch-msssim: differentiable MS-SSIM and SSIM for PyTorch](https://github.com/VainF/pytorch-msssim).
 - [4] Bengio et al., 2013. [Estimating or Propagating Gradients Through Stochastic Neurons for Conditional Computation](https://arxiv.org/abs/1308.3432).
 - [5] Ballé et al., 2017. [End-to-end Optimized Image Compression](https://arxiv.org/abs/1611.01704).
+- [6] Rich Franzen. [Kodak lossless true color image suite](https://r0k.us/graphics/kodak/).
