@@ -47,7 +47,7 @@ uv run --extra notebook jupyter lab notebooks/experiments.ipynb
 
 Open the GitHub notebook using the Colab button above each time you want the latest version. A saved Drive copy is independent and does not update when the repository changes. Experiment outputs still save to your own Drive. The setup cell updates the cloned Python code; use a fresh runtime after code changes so already-imported modules are reloaded.
 
-The notebook includes a Colab setup cell. It installs KHUNC into the running Python environment so training can use Colab's GPU. Set `output_dir` to a folder in mounted Google Drive to keep experiment files after a session ends.
+The Colab setup cell installs KHUNC into the notebook kernel's Python environment and adds the source directory to its import path, so the first installation works without restarting. Set `output_dir` to a folder in mounted Google Drive to keep experiment files after a session ends.
 
 SSIMULACRA2 [[2]](#references) is an external executable used by the Python evaluator. On macOS, install it with `brew install jpeg-xl`. The notebook includes a Colab installer for the upstream implementation. Pass `binary="/path/to/ssimulacra2"` if it is not on your PATH. Evaluation raises an error if the metric is unavailable.
 
