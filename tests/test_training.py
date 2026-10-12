@@ -174,28 +174,38 @@ def test_status_reports_test_loss_and_disabled_early_stopping(config, capsys):
     assert "Validation: starting, 0/1 batches" in output
     assert "Test: 2/2 batches" in output
     assert "Test complete: test_loss=" in output
+    updates = [line for line in output.splitlines() if "batches," in line]
+    assert all("train_loss=" in line for line in updates if "training:" in line)
+    assert all("val_loss=" in line for line in updates if "Validation:" in line)
+    assert all("test_loss=" in line for line in updates if "Test:" in line)
 
 
-def test_status_throttles_batches_by_time_and_flushes(monkeypatch):
+@pytest.mark.parametrize(
+    ("total", "reported"),
+    [(3, [1, 2, 3]), (23, [3, 5, 7, 10, 12, 14, 17, 19, 21, 23]), (100, list(range(10, 101, 10)))],
+)
+def test_status_reports_tenths_with_current_loss_and_flushes(monkeypatch, total, reported):
     from types import SimpleNamespace
 
     from khunc.training.status import StatusLines
 
-    clock = iter([0, 5, 15, 16])
-    monkeypatch.setattr("khunc.training.status.monotonic", lambda: next(clock))
+    monkeypatch.setattr("khunc.training.status.monotonic", lambda: 0)
     messages = []
     monkeypatch.setattr(
         "builtins.print", lambda message, **kwargs: messages.append((message, kwargs))
     )
-    trainer = SimpleNamespace(is_global_zero=True, num_test_batches=[3])
+    trainer = SimpleNamespace(is_global_zero=True, callback_metrics={})
     status = StatusLines()
-    status.on_test_epoch_start(trainer, None)
-    for index in range(3):
-        status.on_test_batch_end(trainer, None, None, None, index)
+    status._start(trainer, "Training", total, "train_loss")
+    for index in range(total):
+        trainer.callback_metrics["train_loss_step"] = torch.tensor((index + 1) / 100)
+        status.on_train_batch_end(trainer, None, None, None, index)
     assert [message for message, _ in messages] == [
-        "Test: starting, 0/3 batches",
-        "Test: 2/3 batches, 15s elapsed",
-        "Test: 3/3 batches, 16s elapsed",
+        f"Training: starting, 0/{total} batches",
+        *[
+            f"Training: {batch}/{total} batches, 0s elapsed, train_loss={batch / 100:.6g}"
+            for batch in reported
+        ],
     ]
     assert all(kwargs == {"flush": True} for _, kwargs in messages)
 

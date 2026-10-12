@@ -19,21 +19,25 @@ class StatusLines(Callback):
         if trainer.is_global_zero:
             print(message, flush=True)
 
-    def _start(self, trainer, stage, total):
+    def _start(self, trainer, stage, total, loss_name):
         self.stage = stage
         self.total = total
-        self.started = self.updated = monotonic()
+        self.loss_name = loss_name
+        self.reported_fraction = 0
+        self.started = monotonic()
         self._print(trainer, f"{stage}: starting, 0/{total} batches")
 
-    def _batch(self, trainer, batch_idx):
-        now = monotonic()
-        if now - self.updated >= 15 or batch_idx + 1 == self.total:
+    def _batch(self, trainer, batch_idx, loss):
+        completed = batch_idx + 1
+        fraction = completed * 10 // self.total
+        if fraction > self.reported_fraction:
+            loss_text = f", {self.loss_name}={float(loss):.6g}" if loss is not None else ""
             self._print(
                 trainer,
-                f"{self.stage}: {batch_idx + 1}/{self.total} batches, "
-                f"{now - self.started:.0f}s elapsed",
+                f"{self.stage}: {completed}/{self.total} batches, "
+                f"{monotonic() - self.started:.0f}s elapsed{loss_text}",
             )
-            self.updated = now
+            self.reported_fraction = fraction
 
     def _summary(self, trainer):
         if self.pending is None:
@@ -74,22 +78,23 @@ class StatusLines(Callback):
             trainer,
             f"Epoch {trainer.current_epoch + 1}/{trainer.max_epochs} training",
             trainer.num_training_batches,
+            "train_loss",
         )
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        self._batch(trainer, batch_idx)
+        self._batch(trainer, batch_idx, trainer.callback_metrics.get("train_loss_step"))
 
     def on_validation_epoch_start(self, trainer, pl_module):
         stage = "Sanity validation" if trainer.sanity_checking else "Validation"
         counts = (
             trainer.num_sanity_val_batches if trainer.sanity_checking else trainer.num_val_batches
         )
-        self._start(trainer, stage, sum(counts))
+        self._start(trainer, stage, sum(counts), "val_loss")
 
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
     ):
-        self._batch(trainer, batch_idx)
+        self._batch(trainer, batch_idx, outputs)
 
     def on_validation_end(self, trainer, pl_module):
         loss = trainer.callback_metrics.get("val_loss")
@@ -110,10 +115,10 @@ class StatusLines(Callback):
         self._summary(trainer)
 
     def on_test_epoch_start(self, trainer, pl_module):
-        self._start(trainer, "Test", sum(trainer.num_test_batches))
+        self._start(trainer, "Test", sum(trainer.num_test_batches), "test_loss")
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
-        self._batch(trainer, batch_idx)
+        self._batch(trainer, batch_idx, outputs)
 
     def on_test_end(self, trainer, pl_module):
         loss = trainer.callback_metrics.get("test_loss")
