@@ -39,16 +39,21 @@ __all__ = [
 ]
 
 
-def train(config: TrainConfig, *, checkpoint=None, resume_from=None):
+def train(config: TrainConfig, *, checkpoint=None, resume_from=None, progress_refresh_rate=20):
     from .training.trainer import train as run
 
-    return run(config, checkpoint=checkpoint, resume_from=resume_from)
+    return run(
+        config,
+        checkpoint=checkpoint,
+        resume_from=resume_from,
+        progress_refresh_rate=progress_refresh_rate,
+    )
 
 
-def test_model(model: KHUNC, config: TrainConfig) -> dict:
+def test_model(model: KHUNC, config: TrainConfig, *, progress_refresh_rate=20) -> dict:
     from .training.trainer import test_model as run
 
-    return run(model, config)
+    return run(model, config, progress_refresh_rate=progress_refresh_rate)
 
 
 def download_imagenette(root="data", size="full"):

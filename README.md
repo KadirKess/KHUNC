@@ -77,6 +77,8 @@ The notebook defaults to 384 x 384 augmented images, float32 latents, MS-SSIM lo
 
 ReduceLROnPlateau monitors `val_loss`, with `lr_scheduler_patience=10` and `lr_scheduler_factor=0.1`. EarlyStopping uses `early_stopping_patience=20`; set it to `None` to disable it. Both use validation with actual stored quantization.
 
+The notebook enables Colab's widget display for progress bars. `progress_refresh_rate=20` updates every 20 batches; set it to `0` to hide the bars. The same optional argument is available on `train()` and `test_model()`.
+
 Imagenette's training directory is split into training and validation sets within each class, using `validation_fraction` and `seed`. Its existing `val` directory is the test set. The exact file lists are saved with each run. Kodak is a separate final benchmark.
 
 ```python

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_msssim import ms_ssim
 
@@ -84,7 +84,9 @@ class TrainingResult:
     model: KHUNC
 
 
-def train(config: TrainConfig, *, checkpoint=None, resume_from=None) -> TrainingResult:
+def train(
+    config: TrainConfig, *, checkpoint=None, resume_from=None, progress_refresh_rate=20
+) -> TrainingResult:
     """checkpoint starts fine-tuning; resume_from restores a KHUNC training run."""
     if checkpoint is not None and resume_from is not None:
         raise ValueError("Choose checkpoint or resume_from, not both")
@@ -130,7 +132,7 @@ def train(config: TrainConfig, *, checkpoint=None, resume_from=None) -> Training
         enable_version_counter=False,
         every_n_epochs=1,
     )
-    callbacks = [callback, latest]
+    callbacks = [callback, latest, TQDMProgressBar(refresh_rate=progress_refresh_rate, leave=False)]
     if config.early_stopping_patience is not None:
         callbacks.append(EarlyStopping(monitor="val_loss", patience=config.early_stopping_patience))
     if config.compile_model:
@@ -169,13 +171,14 @@ def train(config: TrainConfig, *, checkpoint=None, resume_from=None) -> Training
     return TrainingResult(experiment, best, load_model(best, device="cpu"))
 
 
-def test_model(model: KHUNC, config: TrainConfig) -> dict:
+def test_model(model: KHUNC, config: TrainConfig, *, progress_refresh_rate=20) -> dict:
     splits = create_data(config)
     module = TrainingModule(copy.deepcopy(model), config)
     trainer = pl.Trainer(
         accelerator=config.accelerator,
         devices=1,
         precision=config.precision,
+        callbacks=[TQDMProgressBar(refresh_rate=progress_refresh_rate, leave=False)],
         logger=False,
         enable_checkpointing=False,
     )
