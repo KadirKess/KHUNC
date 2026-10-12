@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_msssim import ms_ssim
 
@@ -14,6 +14,7 @@ from ..experiments import Experiment, write_json
 from ..models.checkpoints import file_digest, load_model
 from ..models.network import KHUNC, pad_image
 from ..training.data import create_data
+from .status import StatusLines
 
 
 class TrainingModule(pl.LightningModule):
@@ -49,7 +50,6 @@ class TrainingModule(pl.LightningModule):
             loss,
             on_step=stage == "train",
             on_epoch=True,
-            prog_bar=True,
             batch_size=image.shape[0],
         )
         return loss
@@ -84,9 +84,7 @@ class TrainingResult:
     model: KHUNC
 
 
-def train(
-    config: TrainConfig, *, checkpoint=None, resume_from=None, progress_refresh_rate=20
-) -> TrainingResult:
+def train(config: TrainConfig, *, checkpoint=None, resume_from=None) -> TrainingResult:
     """checkpoint starts fine-tuning; resume_from restores a KHUNC training run."""
     if checkpoint is not None and resume_from is not None:
         raise ValueError("Choose checkpoint or resume_from, not both")
@@ -94,8 +92,15 @@ def train(
     model = load_model(checkpoint, device="cpu") if checkpoint else KHUNC(config.model)
     if model.config != config.model:
         raise ValueError("Checkpoint architecture differs from config.model")
+    best_loss = float("inf")
     if resume_from:
         saved = torch.load(Path(resume_from).expanduser(), map_location="cpu", weights_only=True)
+        scores = [
+            float(state["best_model_score"])
+            for state in saved.get("callbacks", {}).values()
+            if state.get("best_model_score") is not None
+        ]
+        best_loss = min(scores, default=best_loss)
         previous = saved.get("hyper_parameters", {}).get("config")
         if previous is None:
             raise ValueError("Use checkpoint= to fine-tune an original notebook checkpoint")
@@ -132,9 +137,10 @@ def train(
         enable_version_counter=False,
         every_n_epochs=1,
     )
-    callbacks = [callback, latest, TQDMProgressBar(refresh_rate=progress_refresh_rate, leave=False)]
+    callbacks = [callback, latest]
     if config.early_stopping_patience is not None:
         callbacks.append(EarlyStopping(monitor="val_loss", patience=config.early_stopping_patience))
+    callbacks.append(StatusLines(best_loss))
     if config.compile_model:
         module.model = torch.compile(module.model)
     trainer = pl.Trainer(
@@ -143,6 +149,7 @@ def train(
         devices=1,
         precision=config.precision,
         callbacks=callbacks,
+        enable_progress_bar=False,
         logger=CSVLogger(experiment.path / "logs", name="training", version=""),
         default_root_dir=experiment.path,
         deterministic="warn",
@@ -171,14 +178,15 @@ def train(
     return TrainingResult(experiment, best, load_model(best, device="cpu"))
 
 
-def test_model(model: KHUNC, config: TrainConfig, *, progress_refresh_rate=20) -> dict:
+def test_model(model: KHUNC, config: TrainConfig) -> dict:
     splits = create_data(config)
     module = TrainingModule(copy.deepcopy(model), config)
     trainer = pl.Trainer(
         accelerator=config.accelerator,
         devices=1,
         precision=config.precision,
-        callbacks=[TQDMProgressBar(refresh_rate=progress_refresh_rate, leave=False)],
+        callbacks=[StatusLines()],
+        enable_progress_bar=False,
         logger=False,
         enable_checkpointing=False,
     )

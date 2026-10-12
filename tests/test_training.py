@@ -125,7 +125,7 @@ def test_training_saves_and_resumes_a_complete_experiment(config, augment):
     )
 
 
-def test_plateau_reduces_learning_rate_and_stops_training(config, monkeypatch):
+def test_plateau_reduces_learning_rate_and_stops_training(config, monkeypatch, capsys):
     config = replace(config, epochs=10, lr_scheduler_patience=0, early_stopping_patience=2)
     monkeypatch.setattr(
         TrainingModule,
@@ -136,6 +136,68 @@ def test_plateau_reduces_learning_rate_and_stops_training(config, monkeypatch):
     last = torch.load(result.experiment.path / "checkpoints/last.ckpt", weights_only=True)
     assert last["epoch"] == 2
     assert last["optimizer_states"][0]["param_groups"][0]["lr"] < config.learning_rate
+    output = capsys.readouterr().out
+    assert "Sanity validation: starting" in output
+    assert "Epoch 1/10 complete" in output
+    assert "val_loss=1 (improved)" in output
+    assert "val_loss=1 (did not improve)" in output
+    assert "LR=1e-05 (reduced from 0.0001)" in output
+    assert "ReduceLROnPlateau: 0/1 bad epochs, 1 more before reduction" in output
+    assert "EarlyStopping: 2/2 checks without improvement, stop requested" in output
+
+
+def test_status_uses_restored_best_loss_and_stopping_counter(config, monkeypatch, capsys):
+    config = replace(config, epochs=2, lr_scheduler_patience=5, early_stopping_patience=3)
+    monkeypatch.setattr(
+        TrainingModule,
+        "reconstruction_loss",
+        lambda self, image, reconstructed: reconstructed.mean() * 0 + 1,
+    )
+    first = train(config)
+    capsys.readouterr()
+    train(
+        replace(config, epochs=3),
+        resume_from=first.experiment.path / "checkpoints/last.ckpt",
+    )
+    output = capsys.readouterr().out
+    assert "Epoch 3/3 complete" in output
+    assert "val_loss=1 (did not improve)" in output
+    assert "EarlyStopping: 2/3 checks without improvement" in output
+
+
+def test_status_reports_test_loss_and_disabled_early_stopping(config, capsys):
+    config = replace(config, early_stopping_patience=None)
+    result = train(config)
+    run_test(result.model, config)
+    output = capsys.readouterr().out
+    assert "EarlyStopping disabled" in output
+    assert "Validation: starting, 0/1 batches" in output
+    assert "Test: 2/2 batches" in output
+    assert "Test complete: test_loss=" in output
+
+
+def test_status_throttles_batches_by_time_and_flushes(monkeypatch):
+    from types import SimpleNamespace
+
+    from khunc.training.status import StatusLines
+
+    clock = iter([0, 5, 15, 16])
+    monkeypatch.setattr("khunc.training.status.monotonic", lambda: next(clock))
+    messages = []
+    monkeypatch.setattr(
+        "builtins.print", lambda message, **kwargs: messages.append((message, kwargs))
+    )
+    trainer = SimpleNamespace(is_global_zero=True, num_test_batches=[3])
+    status = StatusLines()
+    status.on_test_epoch_start(trainer, None)
+    for index in range(3):
+        status.on_test_batch_end(trainer, None, None, None, index)
+    assert [message for message, _ in messages] == [
+        "Test: starting, 0/3 batches",
+        "Test: 2/3 batches, 15s elapsed",
+        "Test: 3/3 batches, 16s elapsed",
+    ]
+    assert all(kwargs == {"flush": True} for _, kwargs in messages)
 
 
 def test_augmentation_varies_training_images_but_not_validation_or_test(config):
