@@ -41,19 +41,18 @@ Use Python 3.11 through 3.13 and uv.
 ```sh
 git clone https://github.com/KadirKess/KHUNC.git
 cd KHUNC
-uv sync --extra notebook
-uv run --extra notebook jupyter lab notebooks/experiments.ipynb
+uv sync
 ```
 
-Open the GitHub notebook using the Colab button above each time you want the latest version. A saved Drive copy is independent and does not update when the repository changes. Experiment outputs still save to your own Drive. The setup cell updates the cloned Python code; use a fresh runtime after code changes so already-imported modules are reloaded.
+The notebook runs on Colab and uses the Python API shown below. Open the GitHub notebook using the Colab button above each time you want the latest version. A saved Drive copy is independent and does not update when the repository changes. Experiment outputs still save to your own Drive. The setup cell updates the cloned Python code; use a fresh runtime after code changes so already-imported modules are reloaded.
 
-The Colab setup cell installs KHUNC into the notebook kernel's Python environment and adds the source directory to its import path, so the first installation works without restarting. Set `output_dir` to a folder in mounted Google Drive to keep experiment files after a session ends.
+The setup cell mounts Google Drive, clones or updates the repository, and installs KHUNC. It also adds the source directory to the import path, so the first installation works without restarting. Experiments save to `MyDrive/KHUNC/experiments` and survive the end of a session.
 
-SSIMULACRA2 [[2]](#references) is an external executable used by the Python evaluator. On macOS, install it with `brew install jpeg-xl`. The notebook includes a Colab installer for the upstream implementation. Pass `binary="/path/to/ssimulacra2"` if it is not on your PATH. Evaluation raises an error if the metric is unavailable.
+SSIMULACRA2 [[2]](#references) is an external executable used by the Python evaluator. On macOS, install it with `brew install jpeg-xl`. On Colab, the notebook builds the upstream implementation. Pass `binary="/path/to/ssimulacra2"` if it is not on your PATH. Evaluation raises an error if the metric is unavailable.
 
 ## Train and fine-tune
 
-Edit a Python configuration directly in the notebook. Each run saves a snapshot; you do not need to maintain configuration files by hand.
+Edit the `TrainConfig` in the notebook's settings cell. Its `MODE` setting chooses between training from scratch, fine-tuning, resuming, and evaluating a saved `CHECKPOINT`. Each run saves a snapshot of its configuration; you do not need to maintain configuration files by hand.
 
 ```python
 from khunc import TrainConfig, QuantizationConfig, download_imagenette, train
@@ -73,7 +72,7 @@ model = result.model
 
 `train(config)` starts from new weights. `checkpoint=` fine-tunes saved weights with a new optimizer. `resume_from=` restores a KHUNC training checkpoint, including optimizer and scheduler state. When resuming, `epochs` is the total epoch target, not an additional count.
 
-The notebook defaults to 384 x 384 augmented images, float32 latents, MS-SSIM loss implemented by pytorch-msssim [[3]](#references), an AdamW learning rate of 0.001, and 50 epochs. It enables `compile_model=True` and uses `training_precision="bf16-mixed"`; choose a precision supported by your hardware. `TrainConfig` defaults to resize-only training, `compile_model=False`, and `precision="32-true"`.
+`TrainConfig` defaults to 384 x 384 augmented images, float32 latents, MS-SSIM loss implemented by pytorch-msssim [[3]](#references), an AdamW learning rate of 0.001, 50 epochs, `compile_model=True`, and `precision="bf16-mixed"`. Choose a precision your hardware supports.
 
 ReduceLROnPlateau monitors `val_loss`, with `lr_scheduler_patience=10` and `lr_scheduler_factor=0.1`. EarlyStopping uses `early_stopping_patience=20`; set it to `None` to disable it. Both use validation with actual stored quantization.
 
@@ -87,9 +86,9 @@ from khunc import test_model
 test_metrics = test_model(model, config)
 ```
 
-Training always produces fixed-size batches. The notebook enables augmentation by default; `TrainConfig` defaults to resize-only training for compatibility with existing experiments. Set `augment=True` to use random square crops at varied scales, horizontal and vertical flips, and mild brightness, contrast, and saturation changes. Both the input and reconstruction target are the same augmented image. Validation and Imagenette testing use deterministic resizing, and Kodak uses native dimensions. These augmentations aim to improve generalization; measure their effect against `augment=False` using the same split and seed.
+Training always produces fixed-size batches. By default, training uses random square crops at varied scales, horizontal and vertical flips, and mild brightness, contrast, and saturation changes. Set `augment=False` for resize-only training. Configurations saved before augmentation existed load as resize-only. Both the input and reconstruction target are the same augmented image. Validation and Imagenette testing use deterministic resizing, and Kodak uses native dimensions. These augmentations aim to improve generalization; measure their effect against `augment=False` using the same split and seed.
 
-Augmentation settings are plain notebook variables: `crop_scale=(0.5, 1.0)` specifies the fraction of source area before resizing, `horizontal_flip=0.5` and `vertical_flip=0.5` specify probabilities, and `color_jitter=0.1` sets the strength of color changes. Set a flip or jitter value to zero to disable it. Square crops preserve aspect ratio before resizing. Parameters are saved with each experiment. Cropping and color changes use torchvision's RandomResizedCrop and ColorJitter.
+In the augmentation settings, `crop_scale=(0.5, 1.0)` specifies the fraction of source area before resizing, `horizontal_flip=0.5` and `vertical_flip=0.5` specify probabilities, and `color_jitter=0.1` sets the strength of color changes. Set a flip or jitter value to zero to disable it. Square crops preserve aspect ratio before resizing. Parameters are saved with each experiment. Cropping and color changes use torchvision's RandomResizedCrop and ColorJitter.
 
 ## Architecture experiments
 
@@ -105,7 +104,7 @@ result = train(smaller_latent)
 
 ## Latent storage and quantization
 
-The notebook uses plain settings such as `latent_dtype = "float32"` and `training_precision = "bf16-mixed"`. The former changes the saved compressed latent; the latter changes arithmetic during training. Input images still use ordinary RGB pixels. The Python API stores these choices in `QuantizationConfig` and `TrainConfig` so experiments can be saved and resumed.
+`QuantizationConfig(storage=...)` changes the saved compressed latent, and `TrainConfig(precision=...)` changes arithmetic during training. Input images still use ordinary RGB pixels.
 
 | Setting | Meaning |
 | --- | --- |
@@ -120,7 +119,7 @@ The notebook uses plain settings such as `latent_dtype = "float32"` and `trainin
 
 Bit depths from 1 to 8 are supported. For integer storage, each image and channel has its own minimum and scale. Both are stored as float32 metadata. Ranges are computed from detached latents in the training surrogates. STE and noise are approximations; compare them experimentally. Validation and testing always use actual rounding at the configured bit depth, even when training uses noise.
 
-`precision="bf16-mixed"` controls training arithmetic on compatible hardware. It is independent of latent storage and does not simulate uint8 quantization. The notebook selects this mode; the Python API defaults to `precision="32-true"`. The optional reconstruction losses are `"mse"` and `"ms_ssim_mse"`; the latter adds `mse_weight * MSE` to the MS-SSIM loss.
+`precision="bf16-mixed"` controls training arithmetic on compatible hardware. It is independent of latent storage and does not simulate uint8 quantization. It is the default. The optional reconstruction losses are `"mse"` and `"ms_ssim_mse"`; the latter adds `mse_weight * MSE` to the MS-SSIM loss.
 
 STE means straight-through estimator: round or cast the latent in the forward pass, then approximate its gradient as identity, following Bengio et al. [[4]](#references). Noise replaces integer rounding during training with uniform noise within half a quantization step, following Ballé et al. [[5]](#references). Here the step is computed per image and channel; it is an adaptation, not a reproduction of their full compression model. `training="none"` leaves the training latent unchanged. Noise is available for integer storage; STE also supports float16 and bfloat16 casts.
 
@@ -170,7 +169,7 @@ figure = plot_quantization(
 
 `evaluate_kodak(model, quantization=...)` downloads the 24 Kodak images and runs a single configuration. `evaluate(model, image_paths, ...)` evaluates any image set. The evaluator decodes the saved compressed files and scores RGB8 PNG reconstructions with SSIMULACRA2. It saves per-image scores, their mean and range, stored sizes, bits per pixel, and mean compression and decompression times. Stored sizes include format overhead and quantization metadata.
 
-The notebook compares float32, float16, bfloat16, and integer storage at 8, 7, 6, 5, and 4 bits by default. Set `compare_integer_quantization=False` to skip the integer modes. Its External images evaluation section accepts a folder or list of paths through `extra_images`.
+The notebook compares float32, float16, bfloat16, and integer storage at 8, 7, 6, 5, and 4 bits by default. Remove entries from its `storage_modes` list to skip them. Its "Your own images" section accepts a folder or list of paths through `extra_images`.
 
 Timings use batch size one, warmup for each image shape, and CUDA or MPS synchronization. They include quantization, in-memory serialization, and memory transfers. Input loading and input transfer to the device, disk I/O, PNG saving, metric calculation, and codec initialization are outside the measurements. Results record the device, package versions, executable hash, model fingerprint, source image hashes, and timing settings. Compare performance on the same device.
 

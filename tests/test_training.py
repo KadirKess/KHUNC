@@ -32,6 +32,9 @@ def config(tmp_path):
         batch_size=2,
         num_workers=0,
         accelerator="cpu",
+        augment=False,
+        precision="32-true",
+        compile_model=False,
     )
 
 

@@ -54,7 +54,7 @@ class TrainConfig:
     batch_size: int = 8
     learning_rate: float = 1e-3
     image_size: int = 384
-    augment: bool = False
+    augment: bool = True
     crop_scale: tuple[float, float] = (0.5, 1.0)
     horizontal_flip: float = 0.5
     vertical_flip: float = 0.5
@@ -65,11 +65,11 @@ class TrainConfig:
     loss: Literal["ms_ssim", "mse", "ms_ssim_mse"] = "ms_ssim"
     mse_weight: float = 0.1
     accelerator: str = "auto"
-    precision: str = "32-true"
+    precision: str = "bf16-mixed"
     lr_scheduler_patience: int = 10
     lr_scheduler_factor: float = 0.1
     early_stopping_patience: int | None = 20
-    compile_model: bool = False
+    compile_model: bool = True
 
     def __post_init__(self):
         object.__setattr__(self, "data_dir", Path(self.data_dir).expanduser())
@@ -109,6 +109,8 @@ class TrainConfig:
     @classmethod
     def from_dict(cls, values: dict) -> "TrainConfig":
         values = dict(values)
+        # Configs saved before augmentation existed were resize-only
+        values.setdefault("augment", False)
         values["model"] = ModelConfig(**values.get("model", {}))
         values["quantization"] = QuantizationConfig(**values.get("quantization", {}))
         return cls(**values)
